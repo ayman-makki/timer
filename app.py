@@ -1,6 +1,7 @@
 """Single-instance countdown service backed by SQLite."""
 import calendar
 from collections import OrderedDict
+from contextlib import closing
 from datetime import datetime, timedelta, timezone
 from functools import wraps
 import hashlib
@@ -18,7 +19,7 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.exceptions import HTTPException
 
 
-UNITS = {"years", "months", "days", "hours"}
+UNITS = {"years", "months", "weeks", "days", "hours"}
 DURATION_FIELDS = ("years", "months", "days", "hours", "minutes")
 
 
@@ -66,16 +67,31 @@ def create_app(config=None):
                 stream.write(app.config["SECRET_KEY"])
 
     database_path = data_dir / "timers.sqlite3"
-    with sqlite3.connect(database_path) as initial_db:
+    with closing(sqlite3.connect(database_path, timeout=10)) as initial_db:
         initial_db.execute("PRAGMA journal_mode=WAL")
-        initial_db.execute("""CREATE TABLE IF NOT EXISTS timers (
-            id TEXT PRIMARY KEY,
-            title TEXT NOT NULL,
-            created_at TEXT NOT NULL,
-            ends_at TEXT NOT NULL,
-            display_unit TEXT NOT NULL CHECK(display_unit IN ('years','months','days','hours'))
-        )""")
-    initial_db.close()
+        with initial_db:
+            # Explicitly include schema changes in the transaction and serialize startups.
+            initial_db.execute("BEGIN IMMEDIATE")
+            version = initial_db.execute("PRAGMA user_version").fetchone()[0]
+            if version > 1:
+                raise RuntimeError("The timer database was created by a newer application version.")
+            if version == 0:
+                initial_db.execute("""CREATE TABLE timers_next (
+                    id TEXT PRIMARY KEY,
+                    title TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    ends_at TEXT NOT NULL,
+                    display_unit TEXT NOT NULL CHECK(display_unit IN ('years','months','weeks','days','hours'))
+                )""")
+                legacy_table = initial_db.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='timers'"
+                ).fetchone()
+                if legacy_table:
+                    initial_db.execute("""INSERT INTO timers_next (id,title,created_at,ends_at,display_unit)
+                        SELECT id,title,created_at,ends_at,display_unit FROM timers""")
+                    initial_db.execute("DROP TABLE timers")
+                initial_db.execute("ALTER TABLE timers_next RENAME TO timers")
+                initial_db.execute("PRAGMA user_version=1")
     database_path.chmod(0o600)
 
     password = app.config["APP_PASSWORD"]
@@ -212,7 +228,7 @@ def create_app(config=None):
                 raise ValueError("Choose a duration of at least one minute.")
             unit = body.get("display_unit", "years")
             if not isinstance(unit, str) or unit not in UNITS:
-                raise ValueError("Choose years, months, days, or hours for the display.")
+                raise ValueError("Choose years, months, weeks, days, or hours for the display.")
             now = datetime.now(timezone.utc)
             try:
                 end = add_duration(now, values)
@@ -237,7 +253,7 @@ def create_app(config=None):
             body = json_body()
             unit = body.get("display_unit")
             if set(body) != {"display_unit"} or not isinstance(unit, str) or unit not in UNITS:
-                raise ValueError("Supply a display_unit of years, months, days, or hours.")
+                raise ValueError("Supply a display_unit of years, months, weeks, days, or hours.")
         except ValueError as error:
             return jsonify(error=str(error)), 400
         connection = database()

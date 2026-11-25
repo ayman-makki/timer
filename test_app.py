@@ -1,7 +1,11 @@
 """Run with: python -m unittest -v"""
 from datetime import datetime, timezone
+from contextlib import closing
+from pathlib import Path
+import sqlite3
 from tempfile import TemporaryDirectory
 import unittest
+from unittest.mock import patch
 
 from app import add_duration, create_app
 
@@ -106,6 +110,80 @@ class TimerTests(unittest.TestCase):
         restarted = create_app(config).test_client()
         restarted.set_cookie("session", client.get_cookie("session").value)
         self.assertEqual(restarted.get("/api/timers").status_code, 200)
+
+
+class LegacyMigrationTests(unittest.TestCase):
+    def setUp(self):
+        self.storage = TemporaryDirectory()
+        self.addCleanup(self.storage.cleanup)
+        self.config = {"TESTING": True, "DATA_DIR": self.storage.name, "APP_PASSWORD": "",
+                       "SECRET_KEY": "test-secret"}
+        self.path = Path(self.storage.name) / "timers.sqlite3"
+        self.timers = [
+            dict(id=f"legacy-{unit}", title=f"Saved {unit}",
+                 created_at="2024-02-29T12:34:56.789Z", ends_at="2030-03-31T23:59:00.123Z",
+                 display_unit=unit)
+            for unit in ("years", "months", "days", "hours")
+        ]
+        with closing(sqlite3.connect(self.path)) as connection, connection:
+            connection.execute("""CREATE TABLE timers (
+                id TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                ends_at TEXT NOT NULL,
+                display_unit TEXT NOT NULL CHECK(display_unit IN ('years','months','days','hours'))
+            )""")
+            connection.executemany(
+                "INSERT INTO timers (id,title,created_at,ends_at,display_unit) VALUES (:id,:title,:created_at,:ends_at,:display_unit)",
+                self.timers,
+            )
+
+    def test_legacy_timers_and_weeks_persist_across_restarts(self):
+        client = create_app(self.config).test_client()
+        self.assertCountEqual(client.get("/api/timers").json["timers"], self.timers)
+        with closing(sqlite3.connect(self.path)) as connection:
+            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 1)
+
+        updated = client.patch("/api/timers/" + self.timers[0]["id"],
+                               json={"display_unit": "weeks"}, headers=HEADERS)
+        self.assertEqual(updated.status_code, 200)
+        expected = [{**self.timers[0], "display_unit": "weeks"}, *self.timers[1:]]
+        self.assertEqual(updated.json["timer"], expected[0])
+        created = client.post("/api/timers",
+                              json={"title": "Weekly display", "days": 15, "display_unit": "weeks"},
+                              headers=HEADERS)
+        self.assertEqual(created.status_code, 201)
+        self.assertEqual(created.json["timer"]["display_unit"], "weeks")
+        expected.append(created.json["timer"])
+        restarted = create_app(self.config).test_client()
+        self.assertCountEqual(restarted.get("/api/timers").json["timers"], expected)
+
+    def test_failed_migration_rolls_back_schema_and_all_timers(self):
+        class FailingConnection(sqlite3.Connection):
+            def execute(self, sql, *args, **kwargs):
+                if sql == "ALTER TABLE timers_next RENAME TO timers":
+                    raise sqlite3.OperationalError("Injected migration failure")
+                return super().execute(sql, *args, **kwargs)
+
+        connection = sqlite3.connect(self.path, factory=FailingConnection)
+        with patch("app.sqlite3.connect", return_value=connection):
+            with self.assertRaisesRegex(sqlite3.OperationalError, "Injected migration failure"):
+                create_app(self.config)
+
+        with closing(sqlite3.connect(self.path)) as connection:
+            connection.row_factory = sqlite3.Row
+            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 0)
+            self.assertCountEqual(
+                [dict(row) for row in connection.execute("SELECT * FROM timers")], self.timers
+            )
+            self.assertIsNone(connection.execute(
+                "SELECT name FROM sqlite_master WHERE name='timers_next'"
+            ).fetchone())
+            with self.assertRaises(sqlite3.IntegrityError):
+                connection.execute("UPDATE timers SET display_unit='weeks'")
+
+        restarted = create_app(self.config).test_client()
+        self.assertCountEqual(restarted.get("/api/timers").json["timers"], self.timers)
 
 
 if __name__ == "__main__":

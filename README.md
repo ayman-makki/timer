@@ -70,9 +70,9 @@ This keeps the data volume. **`docker compose down -v` deletes the volume and it
 
 Year and month inputs are added as UTC calendar offsets, clamping the day to the last valid day of the target month (for example, January 31 plus one month becomes February 28, or February 29 in a leap year). Days, hours and minutes are then added. UTC calculation avoids daylight-saving changes affecting durations.
 
-Display units are fixed equivalents of the time remaining: a year is **365.2425 days**, a month is **365.2425 / 12 days**, a day is **24 hours**, and an hour is **60 minutes**. Year/month displays are approximate, not a fresh calendar calculation. Changing the display unit does not change the deadline.
+Display units are fixed equivalents of the time remaining: a year is **365.2425 days**, a month is **365.2425 / 12 days**, a week is **7 days**, a day is **24 hours**, and an hour is **60 minutes**. Year/month displays are approximate, not a fresh calendar calculation. Changing the display unit does not change the deadline.
 
-New timers default to years. The breakdown shows remaining months and days for years, days for months, hours and minutes for days, and minutes for hours. Desktop shows two compact timer cards per row; mobile shows one. Saved display choices remain unchanged.
+New timers default to years. The digital clock shows remaining months, weeks and days for years; weeks and days for months; days for weeks; hours and minutes for days; and minutes for hours. In year/month modes, whole weeks are deducted from remaining days, and the weeks group appears only when nonzero. Desktop shows two compact timer cards per row; mobile shows one. Saved timers and display choices are preserved automatically when upgrading.
 
 The dashboard is reserved for timers. Use the header's **Nouveau minuteur** button or the final add-timer card to open the creation modal.
 

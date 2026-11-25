@@ -2,7 +2,7 @@
 
 (() => {
   const $ = (id) => document.getElementById(id);
-  const units = { years: { label: "années", seconds: 31556952 }, months: { label: "mois", seconds: 2629746 }, days: { label: "jours", seconds: 86400 }, hours: { label: "heures", seconds: 3600 } };
+  const units = { years: { label: "années", seconds: 31556952 }, months: { label: "mois", seconds: 2629746 }, weeks: { label: "semaines", seconds: 604800 }, days: { label: "jours", seconds: 86400 }, hours: { label: "heures", seconds: 3600 } };
   const whole = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 0 });
   const dateFormat = new Intl.DateTimeFormat("fr-FR", { dateStyle: "long", timeStyle: "short" });
   let authenticated = false;
@@ -67,6 +67,86 @@
     return element;
   }
 
+  const svgNamespace = "http://www.w3.org/2000/svg";
+  const segmentShapes = [
+    "8,2 32,2 37,7 32,12 8,12 3,7",
+    "33,13 38,8 38,35 33,40 28,35 28,18",
+    "33,42 38,47 38,74 33,69 28,64 28,47",
+    "8,70 32,70 37,75 32,80 8,80 3,75",
+    "2,47 7,42 12,47 12,64 7,69 2,74",
+    "2,8 7,13 12,18 12,35 7,40 2,35",
+    "8,36 32,36 37,41 32,46 8,46 3,41",
+  ];
+  const digitSegments = ["1111110", "0110000", "1101101", "1111001", "0110011", "1011011", "1011111", "1110000", "1111111", "1111011"];
+
+  function createClockPart(label) {
+    const element = node("span", "countdown-part");
+    const value = document.createElementNS(svgNamespace, "svg");
+    value.classList.add("countdown-value");
+    value.setAttribute("aria-hidden", "true");
+    value.setAttribute("focusable", "false");
+    element.append(node("span", "countdown-unit", label), value);
+    return { element, value, digits: [], text: "" };
+  }
+
+  function updateClockPart(part, amount) {
+    const text = String(amount).padStart(2, "0");
+    if (part.text === text) return;
+    if (part.digits.length !== text.length) {
+      part.digits = Array.from(text, (_, index) => {
+        const digit = document.createElementNS(svgNamespace, "g");
+        digit.setAttribute("transform", `translate(${index * 46} 0)`);
+        for (const points of segmentShapes) {
+          const segment = document.createElementNS(svgNamespace, "polygon");
+          segment.setAttribute("points", points);
+          digit.append(segment);
+        }
+        return digit;
+      });
+      part.value.replaceChildren(...part.digits);
+      part.value.setAttribute("viewBox", `0 0 ${text.length * 46 - 6} 82`);
+      part.value.style.width = `${text.length * 28}px`;
+    }
+    for (let index = 0; index < text.length; index++) {
+      if (part.text.length === text.length && part.text[index] === text[index]) continue;
+      const segments = digitSegments[Number(text[index])];
+      Array.from(part.digits[index].children).forEach((segment, position) => {
+        segment.setAttribute("class", segments[position] === "1" ? "segment lit" : "segment");
+      });
+    }
+    part.text = text;
+  }
+
+  function updateClock(card, seconds, displayUnit) {
+    const key = Object.hasOwn(units, displayUnit) ? displayUnit : "years";
+    const config = units[key];
+    const amounts = [[config.label, Math.floor(seconds / config.seconds)]];
+    let remainder = seconds % config.seconds;
+    const subunits = key === "years"
+      ? [["mois", units.months.seconds], ["semaines", units.weeks.seconds], ["jours", units.days.seconds]]
+      : key === "months"
+        ? [["semaines", units.weeks.seconds], ["jours", units.days.seconds]]
+        : key === "weeks"
+          ? [["jours", units.days.seconds]]
+          : key === "days"
+            ? [["heures", units.hours.seconds], ["minutes", 60]]
+            : [["minutes", 60]];
+    for (const [label, size] of subunits) {
+      const amount = Math.floor(remainder / size);
+      remainder %= size;
+      if (label !== "semaines" || amount > 0) amounts.push([label, amount]);
+    }
+    const shape = amounts.map(([label]) => label).join(",");
+    if (card.shape !== shape) {
+      card.parts = amounts.map(([label]) => createClockPart(label));
+      card.face.replaceChildren(...card.parts.map((part) => part.element));
+      card.shape = shape;
+    }
+    amounts.forEach(([, amount], index) => updateClockPart(card.parts[index], amount));
+    const description = amounts.map(([label, amount]) => `${whole.format(amount)} ${label}`).join(", ");
+    if (card.readable.textContent !== description) card.readable.textContent = description;
+  }
+
   function renderCards() {
     const activeIds = new Set(timers.map((timer) => timer.id));
     for (const [id, card] of cards) {
@@ -94,11 +174,13 @@
         top.append(heading, remove);
         const main = node("div", "card-main");
         const count = node("div", "countdown-row");
-        const value = node("span", "countdown-value");
-        const unit = node("span", "countdown-unit");
-        const primary = node("span", "countdown-part");
-        primary.append(value, unit);
-        count.append(primary);
+        const readable = node("span", "sr-only");
+        const face = node("div", "clock-face");
+        face.setAttribute("aria-hidden", "true");
+        const complete = node("div", "clock-complete");
+        complete.hidden = true;
+        complete.append(node("strong", "", "Le moment est là !"), node("span", "", "L’attente est terminée. Profitez de l’instant."));
+        count.append(readable, face, complete);
         const control = node("div", "unit-control");
         const label = node("label", "", "Afficher en");
         const select = node("select");
@@ -112,10 +194,8 @@
         select.addEventListener("change", () => changeUnit(timer.id, select));
         control.append(label, select);
         main.append(count, control);
-        const breakdown = node("span", "breakdown");
-        count.append(breakdown);
         element.append(top, main);
-        card = { element, title, target, remove, value, unit, select, breakdown, finished: null };
+        card = { element, title, target, remove, select, face, readable, complete, parts: [], shape: "", finished: null };
         cards.set(timer.id, card);
         $("timers").insertBefore(element, $("add-timer"));
       }
@@ -138,36 +218,11 @@
       if (!card) continue;
       const seconds = Math.max(0, Math.ceil((Date.parse(timer.ends_at) - now) / 1000));
       const finished = seconds === 0;
-      const config = units[timer.display_unit] || units.years;
-      card.value.textContent = finished ? "Le moment est là !" : whole.format(Math.floor(seconds / config.seconds));
-      card.unit.textContent = config.label;
-      let remainder = seconds % config.seconds;
-      const subunits = timer.display_unit === "years"
-        ? [["mois", units.months.seconds], ["jours", units.days.seconds]]
-        : timer.display_unit === "months"
-          ? [["jours", units.days.seconds]]
-          : timer.display_unit === "days"
-            ? [["heures", units.hours.seconds], ["minutes", 60]]
-            : [["minutes", 60]];
-      if (finished) {
-        card.breakdown.textContent = "L’attente est terminée. Profitez de l’instant.";
-        delete card.breakdown.dataset.unit;
-      } else {
-        if (card.breakdown.dataset.unit !== timer.display_unit) {
-          card.breakdown.replaceChildren(...subunits.map(([label]) => {
-            const part = node("span", "countdown-part");
-            part.append(node("span", "countdown-value"), node("span", "countdown-unit", label));
-            return part;
-          }));
-          card.breakdown.dataset.unit = timer.display_unit;
-        }
-        subunits.forEach(([, size], index) => {
-          const value = Math.floor(remainder / size);
-          remainder %= size;
-          card.breakdown.children[index].firstChild.textContent = whole.format(value);
-        });
-      }
+      if (!finished) updateClock(card, seconds, timer.display_unit);
       if (card.finished !== finished) {
+        card.face.hidden = finished;
+        card.readable.hidden = finished;
+        card.complete.hidden = !finished;
         card.element.classList.toggle("finished", finished);
         if (card.finished === false && finished) announce(`${timer.title} : le moment est arrivé !`);
         card.finished = finished;
