@@ -143,7 +143,7 @@
       const config = units[timer.display_unit] || units.years;
       const approximate = timer.display_unit === "years" || timer.display_unit === "months";
       card.value.textContent = finished ? "Le moment est là !" : whole.format(Math.floor(seconds / config.seconds));
-      card.unit.textContent = `${config.label}${approximate ? " ≈" : ""}`;
+      card.unit.textContent = config.label;
       let remainder = seconds % config.seconds;
       const subunits = timer.display_unit === "years"
         ? [["mois", units.months.seconds], ["jours", units.days.seconds]]
