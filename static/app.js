@@ -4,7 +4,6 @@
   const $ = (id) => document.getElementById(id);
   const units = { years: { label: "années", seconds: 31556952 }, months: { label: "mois", seconds: 2629746 }, days: { label: "jours", seconds: 86400 }, hours: { label: "heures", seconds: 3600 } };
   const whole = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 0 });
-  const decimal = new Intl.NumberFormat("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const dateFormat = new Intl.DateTimeFormat("fr-FR", { dateStyle: "long", timeStyle: "short" });
   let authenticated = false;
   let protectedSpace = false;
@@ -80,7 +79,14 @@
         const title = node("h3", "timer-title");
         const target = node("p", "target-date");
         heading.append(title, target);
-        const remove = node("button", "delete-button", "×");
+        const remove = node("button", "delete-button");
+        const trash = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+        trash.setAttribute("viewBox", "0 0 24 24");
+        trash.setAttribute("aria-hidden", "true");
+        const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+        path.setAttribute("d", "M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7");
+        trash.append(path);
+        remove.append(trash);
         remove.type = "button";
         remove.addEventListener("click", () => openDelete(timer.id));
         top.append(heading, remove);
@@ -131,15 +137,24 @@
       if (!card) continue;
       const seconds = Math.max(0, Math.ceil((Date.parse(timer.ends_at) - now) / 1000));
       const finished = seconds === 0;
-      const config = units[timer.display_unit] || units.days;
+      const config = units[timer.display_unit] || units.years;
       const approximate = timer.display_unit === "years" || timer.display_unit === "months";
-      card.value.textContent = finished ? "Le moment est là !" : (approximate ? decimal : whole).format(approximate ? seconds / config.seconds : Math.floor(seconds / config.seconds));
+      card.value.textContent = finished ? "Le moment est là !" : whole.format(Math.floor(seconds / config.seconds));
       card.unit.textContent = `${config.label}${approximate ? " ≈" : ""}`;
-      const days = Math.floor(seconds / 86400);
-      const hours = Math.floor(seconds % 86400 / 3600);
-      const minutes = Math.floor(seconds % 3600 / 60);
-      const secs = seconds % 60;
-      card.breakdown.textContent = finished ? "L’attente est terminée. Profitez de l’instant." : `${whole.format(days)} j · ${String(hours).padStart(2, "0")} h · ${String(minutes).padStart(2, "0")} min · ${String(secs).padStart(2, "0")} s`;
+      let remainder = seconds % config.seconds;
+      const subunits = timer.display_unit === "years"
+        ? [["mois", units.months.seconds], ["j", units.days.seconds]]
+        : timer.display_unit === "months"
+          ? [["j", units.days.seconds]]
+          : timer.display_unit === "days"
+            ? [["h", units.hours.seconds], ["min", 60]]
+            : [["min", 60]];
+      const breakdown = subunits.map(([label, size]) => {
+        const value = Math.floor(remainder / size);
+        remainder %= size;
+        return `${whole.format(value)} ${label}`;
+      }).join(" · ");
+      card.breakdown.textContent = finished ? "L’attente est terminée. Profitez de l’instant." : breakdown;
       card.note.textContent = approximate ? "Estimation · année de 365,2425 jours" : "Chaque seconde vous rapproche";
       if (card.finished !== finished) {
         card.element.classList.toggle("finished", finished);

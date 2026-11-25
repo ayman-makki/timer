@@ -210,7 +210,7 @@ def create_app(config=None):
                 raise ValueError("Duration fields must be whole numbers from 0 to 9999.")
             if not any(values.values()):
                 raise ValueError("Choose a duration of at least one minute.")
-            unit = body.get("display_unit", "days")
+            unit = body.get("display_unit", "years")
             if not isinstance(unit, str) or unit not in UNITS:
                 raise ValueError("Choose years, months, days, or hours for the display.")
             now = datetime.now(timezone.utc)

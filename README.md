@@ -72,6 +72,8 @@ Year and month inputs are added as UTC calendar offsets, clamping the day to the
 
 Display units are fixed equivalents of the time remaining: a year is **365.2425 days**, a month is **365.2425 / 12 days**, a day is **24 hours**, and an hour is **60 minutes**. Year/month displays are approximate, not a fresh calendar calculation. Changing the display unit does not change the deadline.
 
+New timers default to years. The breakdown shows remaining months and days for years, days for months, hours and minutes for days, and minutes for hours. Desktop shows two compact timer cards per row; mobile shows one. Saved display choices remain unchanged.
+
 ## Backups
 
 SQLite can have active journal/WAL sidecar files. **Do not copy only the database file while the app is running.** Use SQLite's online backup API or the `sqlite3` shell's `.backup` command against the actual database file:
