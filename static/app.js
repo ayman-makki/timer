@@ -30,12 +30,14 @@
     sessionEpoch += 1;
     timers = [];
     cards.clear();
-    $("timers").replaceChildren();
+    $("timers").replaceChildren($("add-timer"));
     $("workspace").hidden = true;
     $("boot").hidden = true;
     $("logout").hidden = true;
+    $("new-timer").hidden = true;
     $("login-panel").hidden = false;
     if ($("delete-dialog").open) $("delete-dialog").close();
+    if ($("create-dialog").open) $("create-dialog").close();
     $("password").focus();
   }
 
@@ -112,14 +114,10 @@
         main.append(count, control);
         const breakdown = node("span", "breakdown");
         count.append(breakdown);
-        const bottom = node("div", "card-bottom");
-        const status = node("span", "card-status");
-        const note = node("span");
-        bottom.append(status, note);
-        element.append(top, main, bottom);
-        card = { element, title, target, remove, value, unit, select, breakdown, status, note, finished: null };
+        element.append(top, main);
+        card = { element, title, target, remove, value, unit, select, breakdown, finished: null };
         cards.set(timer.id, card);
-        $("timers").append(element);
+        $("timers").insertBefore(element, $("add-timer"));
       }
       card.title.textContent = timer.title;
       card.target.textContent = `Le ${dateFormat.format(new Date(timer.ends_at))} · heure locale`;
@@ -141,7 +139,6 @@
       const seconds = Math.max(0, Math.ceil((Date.parse(timer.ends_at) - now) / 1000));
       const finished = seconds === 0;
       const config = units[timer.display_unit] || units.years;
-      const approximate = timer.display_unit === "years" || timer.display_unit === "months";
       card.value.textContent = finished ? "Le moment est là !" : whole.format(Math.floor(seconds / config.seconds));
       card.unit.textContent = config.label;
       let remainder = seconds % config.seconds;
@@ -170,12 +167,8 @@
           card.breakdown.children[index].firstChild.textContent = whole.format(value);
         });
       }
-      card.note.textContent = approximate ? "Estimation · année de 365,2425 jours" : "Chaque seconde vous rapproche";
       if (card.finished !== finished) {
         card.element.classList.toggle("finished", finished);
-        const dot = node("span", "status-dot");
-        dot.setAttribute("aria-hidden", "true");
-        card.status.replaceChildren(dot, document.createTextNode(finished ? "Moment arrivé" : "En attendant ce moment"));
         if (card.finished === false && finished) announce(`${timer.title} : le moment est arrivé !`);
         card.finished = finished;
       }
@@ -216,6 +209,7 @@
       $("login-panel").hidden = true;
       $("workspace").hidden = false;
       $("logout").hidden = !protectedSpace;
+      $("new-timer").hidden = false;
       await refreshTimers();
     } catch (error) {
       $("boot").querySelector("p").textContent = error.message;
@@ -234,7 +228,7 @@
       await api("/api/login", { method: "POST", body: JSON.stringify({ password: $("password").value }) });
       $("password").value = "";
       await start();
-      if (authenticated) $("title").focus();
+      if (authenticated) $("new-timer").focus();
     } catch (error) { setError("login-error", error.message); }
     finally { button.disabled = false; }
   });
@@ -244,6 +238,21 @@
     try { await api("/api/logout", { method: "POST", body: "{}" }); showLogin(); setError("login-error"); }
     catch (error) { if (error.status !== 401) setError("list-error", error.message); }
     finally { $("logout").disabled = false; }
+  });
+
+  function openCreate() {
+    if (!authenticated) return;
+    $("create-dialog").showModal();
+    $("title").focus();
+  }
+
+  $("new-timer").addEventListener("click", openCreate);
+  $("add-timer").addEventListener("click", openCreate);
+  $("create-close").addEventListener("click", () => {
+    if (!$("create-form").querySelector("button[type=submit]").disabled) $("create-dialog").close();
+  });
+  $("create-dialog").addEventListener("cancel", (event) => {
+    if ($("create-form").querySelector("button[type=submit]").disabled) event.preventDefault();
   });
 
   $("create-form").addEventListener("submit", async (event) => {
@@ -259,6 +268,7 @@
     if (!data.title) { setError("create-error", "Donnez un nom à ce moment."); $("title").focus(); return; }
     if (!total) { setError("create-error", "Choisissez une durée supérieure à zéro."); $("minutes").focus(); return; }
     button.disabled = true;
+    $("create-close").disabled = true;
     const epoch = sessionEpoch;
     try {
       const result = await api("/api/timers", { method: "POST", body: JSON.stringify(data) });
@@ -269,9 +279,10 @@
       form.reset();
       renderCards();
       $("timers").prepend(cards.get(result.timer.id).element);
+      $("create-dialog").close();
       announce(`${result.timer.title} a été créé.`);
     } catch (error) { setError("create-error", error.message); }
-    finally { button.disabled = false; }
+    finally { button.disabled = false; $("create-close").disabled = false; }
   });
 
   async function changeUnit(id, select) {
@@ -317,14 +328,14 @@
       timers = timers.filter((timer) => timer.id !== id);
       renderCards();
       $("delete-dialog").close();
-      $("title").focus();
+      $("new-timer").focus();
       announce("Le moment a été supprimé.");
     } catch (error) { setError("delete-error", error.message); }
     finally { $("delete-confirm").disabled = false; $("delete-cancel").disabled = false; }
   });
   $("delete-dialog").addEventListener("cancel", (event) => { if ($("delete-confirm").disabled) event.preventDefault(); });
   $("retry").addEventListener("click", start);
-  $("start-first").addEventListener("click", () => { $("title").focus(); $("create-form").scrollIntoView({ block: "center" }); });
+  $("start-first").addEventListener("click", openCreate);
   document.addEventListener("visibilitychange", () => { if (!document.hidden && authenticated) { tick(); refreshTimers(); } });
   window.addEventListener("online", () => { if (authenticated) refreshTimers(); });
   setInterval(tick, 1000);
