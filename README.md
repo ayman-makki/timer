@@ -72,7 +72,7 @@ Year and month inputs are added as UTC calendar offsets, clamping the day to the
 
 Display units are fixed equivalents of the time remaining: a year is **365.2425 days**, a month is **365.2425 / 12 days**, a week is **7 days**, a day is **24 hours**, and an hour is **60 minutes**. Year/month displays are approximate, not a fresh calendar calculation. Changing the display unit does not change the deadline.
 
-New timers default to years. The digital clock shows remaining months, weeks and days for years; weeks and days for months; days for weeks; hours and minutes for days; and minutes for hours. In year/month modes, whole weeks are deducted from remaining days, and the weeks group appears only when nonzero. Desktop shows two compact timer cards per row; mobile shows one. Saved timers and display choices are preserved automatically when upgrading.
+New timers default to years. The digital clock shows remaining months, weeks and days for years; weeks and days for months; days for weeks; hours and minutes for days; and minutes for hours. In year/month modes, weeks are always visible and deducted from remaining days (20 days becomes 2 weeks and 6 days). Desktop shows two compact timer cards per row; mobile shows one. Saved timers and display choices are preserved automatically when upgrading.
 
 The dashboard is reserved for timers. Use the header's **Nouveau minuteur** button or the final add-timer card to open the creation modal.
 

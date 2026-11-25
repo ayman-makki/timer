@@ -105,7 +105,8 @@
       });
       part.value.replaceChildren(...part.digits);
       part.value.setAttribute("viewBox", `0 0 ${text.length * 46 - 6} 82`);
-      part.value.style.width = `${text.length * 28}px`;
+      part.value.setAttribute("width", String(text.length * 28));
+      part.value.setAttribute("height", String(text.length * 28 * 82 / (text.length * 46 - 6)));
     }
     for (let index = 0; index < text.length; index++) {
       if (part.text.length === text.length && part.text[index] === text[index]) continue;
@@ -134,7 +135,7 @@
     for (const [label, size] of subunits) {
       const amount = Math.floor(remainder / size);
       remainder %= size;
-      if (label !== "semaines" || amount > 0) amounts.push([label, amount]);
+      amounts.push([label, amount]);
     }
     const shape = amounts.map(([label]) => label).join(",");
     if (card.shape !== shape) {
