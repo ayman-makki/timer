@@ -2,8 +2,8 @@
 
 (() => {
   const $ = (id) => document.getElementById(id);
-  const units = { years: { label: "années", seconds: 31556952 }, months: { label: "mois", seconds: 2629746 }, weeks: { label: "semaines", seconds: 604800 }, days: { label: "jours", seconds: 86400 }, hours: { label: "heures", seconds: 3600 } };
-  const whole = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 0 });
+  const units = [{ label: "années", seconds: 31556952 }, { label: "mois", seconds: 2629746 }, { label: "semaines", seconds: 604800 }, { label: "jours", seconds: 86400 }];
+  const formatWhole = (amount) => String(amount).replace(/\B(?=(\d{3})+(?!\d))/g, " ");
   const dateFormat = new Intl.DateTimeFormat("fr-FR", { dateStyle: "long", timeStyle: "short" });
   let authenticated = false;
   let protectedSpace = false;
@@ -12,7 +12,6 @@
   let timers = [];
   let deleteId = null;
   const cards = new Map();
-  const pendingUnits = new Set();
 
   class ApiError extends Error {
     constructor(message, status) { super(message); this.status = status; }
@@ -90,12 +89,13 @@
   }
 
   function updateClockPart(part, amount) {
-    const text = String(amount).padStart(2, "0");
+    const text = String(amount);
     if (part.text === text) return;
     if (part.digits.length !== text.length) {
       part.digits = Array.from(text, (_, index) => {
         const digit = document.createElementNS(svgNamespace, "g");
-        digit.setAttribute("transform", `translate(${index * 46} 0)`);
+        const gaps = Math.floor((text.length - 1) / 3) - Math.floor((text.length - index - 1) / 3);
+        digit.setAttribute("transform", `translate(${index * 46 + gaps * 22} 0)`);
         for (const points of segmentShapes) {
           const segment = document.createElementNS(svgNamespace, "polygon");
           segment.setAttribute("points", points);
@@ -104,9 +104,10 @@
         return digit;
       });
       part.value.replaceChildren(...part.digits);
-      part.value.setAttribute("viewBox", `0 0 ${text.length * 46 - 6} 82`);
-      part.value.setAttribute("width", String(text.length * 28));
-      part.value.setAttribute("height", String(text.length * 28 * 82 / (text.length * 46 - 6)));
+      const width = text.length * 46 - 6 + Math.floor((text.length - 1) / 3) * 22;
+      part.value.setAttribute("viewBox", `0 0 ${width} 82`);
+      part.value.setAttribute("width", String(width * 54 / 82));
+      part.value.setAttribute("height", "54");
     }
     for (let index = 0; index < text.length; index++) {
       if (part.text.length === text.length && part.text[index] === text[index]) continue;
@@ -118,33 +119,10 @@
     part.text = text;
   }
 
-  function updateClock(card, seconds, displayUnit) {
-    const key = Object.hasOwn(units, displayUnit) ? displayUnit : "years";
-    const config = units[key];
-    const amounts = [[config.label, Math.floor(seconds / config.seconds)]];
-    let remainder = seconds % config.seconds;
-    const subunits = key === "years"
-      ? [["mois", units.months.seconds], ["semaines", units.weeks.seconds], ["jours", units.days.seconds]]
-      : key === "months"
-        ? [["semaines", units.weeks.seconds], ["jours", units.days.seconds]]
-        : key === "weeks"
-          ? [["jours", units.days.seconds]]
-          : key === "days"
-            ? [["heures", units.hours.seconds], ["minutes", 60]]
-            : [["minutes", 60]];
-    for (const [label, size] of subunits) {
-      const amount = Math.floor(remainder / size);
-      remainder %= size;
-      amounts.push([label, amount]);
-    }
-    const shape = amounts.map(([label]) => label).join(",");
-    if (card.shape !== shape) {
-      card.parts = amounts.map(([label]) => createClockPart(label));
-      card.face.replaceChildren(...card.parts.map((part) => part.element));
-      card.shape = shape;
-    }
-    amounts.forEach(([, amount], index) => updateClockPart(card.parts[index], amount));
-    const description = amounts.map(([label, amount]) => `${whole.format(amount)} ${label}`).join(", ");
+  function updateClock(card, seconds) {
+    const amounts = units.map((unit) => Math.floor(seconds / unit.seconds));
+    amounts.forEach((amount, index) => updateClockPart(card.parts[index], amount));
+    const description = amounts.map((amount, index) => `${formatWhole(amount)} ${units[index].label}`).join(", ");
     if (card.readable.textContent !== description) card.readable.textContent = description;
   }
 
@@ -178,35 +156,23 @@
         const readable = node("span", "sr-only");
         const face = node("div", "clock-face");
         face.setAttribute("aria-hidden", "true");
+        const parts = units.map((unit) => createClockPart(unit.label));
+        face.append(...parts.map((part) => part.element));
         const complete = node("div", "clock-complete");
         complete.hidden = true;
         complete.append(node("strong", "", "Le moment est là !"), node("span", "", "L’attente est terminée. Profitez de l’instant."));
         count.append(readable, face, complete);
-        const control = node("div", "unit-control");
-        const label = node("label", "", "Afficher en");
-        const select = node("select");
-        select.id = `unit-${timer.id}`;
-        label.htmlFor = select.id;
-        for (const [key, config] of Object.entries(units)) {
-          const option = node("option", "", config.label[0].toUpperCase() + config.label.slice(1));
-          option.value = key;
-          select.append(option);
-        }
-        select.addEventListener("change", () => changeUnit(timer.id, select));
-        control.append(label, select);
-        main.append(count, control);
+        main.append(count);
         element.append(top, main);
-        card = { element, title, target, remove, select, face, readable, complete, parts: [], shape: "", finished: null };
+        card = { element, title, target, remove, face, readable, complete, parts, finished: null };
         cards.set(timer.id, card);
         $("timers").insertBefore(element, $("add-timer"));
       }
       card.title.textContent = timer.title;
       card.target.textContent = `Le ${dateFormat.format(new Date(timer.ends_at))} · heure locale`;
       card.remove.setAttribute("aria-label", `Supprimer ${timer.title}`);
-      card.select.setAttribute("aria-label", `Unité du temps restant pour ${timer.title}`);
-      if (!pendingUnits.has(timer.id)) card.select.value = timer.display_unit;
     }
-    $("timer-count").textContent = whole.format(timers.length);
+    $("timer-count").textContent = formatWhole(timers.length);
     $("empty").hidden = timers.length !== 0;
     tick();
   }
@@ -217,9 +183,9 @@
     for (const timer of timers) {
       const card = cards.get(timer.id);
       if (!card) continue;
-      const seconds = Math.max(0, Math.ceil((Date.parse(timer.ends_at) - now) / 1000));
+      const seconds = Math.max(0, (Date.parse(timer.ends_at) - now) / 1000);
       const finished = seconds === 0;
-      if (!finished) updateClock(card, seconds, timer.display_unit);
+      if (!finished) updateClock(card, seconds);
       if (card.finished !== finished) {
         card.face.hidden = finished;
         card.readable.hidden = finished;
@@ -341,25 +307,6 @@
     finally { button.disabled = false; $("create-close").disabled = false; }
   });
 
-  async function changeUnit(id, select) {
-    if (pendingUnits.has(id)) return;
-    const previous = timers.find((timer) => timer.id === id)?.display_unit;
-    pendingUnits.add(id);
-    select.disabled = true;
-    const epoch = sessionEpoch;
-    try {
-      const result = await api(`/api/timers/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify({ display_unit: select.value }) });
-      if (refreshPending) await refreshPending;
-      if (!authenticated || epoch !== sessionEpoch) return;
-      timers = timers.map((timer) => timer.id === id ? result.timer : timer);
-      setError("list-error");
-      tick();
-      announce("Unité d’affichage enregistrée.");
-    } catch (error) {
-      select.value = previous;
-      if (error.status !== 401) setError("list-error", error.message);
-    } finally { pendingUnits.delete(id); select.disabled = false; }
-  }
 
   function openDelete(id) {
     const timer = timers.find((item) => item.id === id);

@@ -70,9 +70,9 @@ This keeps the data volume. **`docker compose down -v` deletes the volume and it
 
 Year and month inputs are added as UTC calendar offsets, clamping the day to the last valid day of the target month (for example, January 31 plus one month becomes February 28, or February 29 in a leap year). Days, hours and minutes are then added. UTC calculation avoids daylight-saving changes affecting durations.
 
-Display units are fixed equivalents of the time remaining: a year is **365.2425 days**, a month is **365.2425 / 12 days**, a week is **7 days**, a day is **24 hours**, and an hour is **60 minutes**. Year/month displays are approximate, not a fresh calendar calculation. Changing the display unit does not change the deadline.
+Each timer always displays four independent totals: years, months, weeks and days. Each is rounded down from the entire remaining duration; nothing is deducted between rows. A year is **365.2425 days**, a month is **365.2425 / 12 days**, a week is **7 days**, and a day is **24 hours**. Year/month totals are approximate fixed equivalents, not a fresh calendar calculation. Under one day, all totals are zero until the deadline is reached.
 
-New timers default to years. The digital clock shows remaining months, weeks and days for years; weeks and days for months; days for weeks; hours and minutes for days; and minutes for hours. In year/month modes, weeks are always visible and deducted from remaining days (20 days becomes 2 weeks and 6 days). Desktop shows two compact timer cards per row; mobile shows one. Saved timers and display choices are preserved automatically when upgrading.
+The red seven-segment display uses four vertically stacked rows on a dark background. Numbers are grouped with spaces (for example, `3 000 000`). Desktop shows two timer cards per row; mobile shows one. Existing timer names and deadlines are preserved automatically on upgrade; obsolete display preferences are removed.
 
 The dashboard is reserved for timers. Use the header's **Nouveau minuteur** button or the final add-timer card to open the creation modal.
 

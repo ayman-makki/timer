@@ -19,7 +19,6 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.exceptions import HTTPException
 
 
-UNITS = {"years", "months", "weeks", "days", "hours"}
 DURATION_FIELDS = ("years", "months", "days", "hours", "minutes")
 
 
@@ -73,25 +72,24 @@ def create_app(config=None):
             # Explicitly include schema changes in the transaction and serialize startups.
             initial_db.execute("BEGIN IMMEDIATE")
             version = initial_db.execute("PRAGMA user_version").fetchone()[0]
-            if version > 1:
+            if version > 2:
                 raise RuntimeError("The timer database was created by a newer application version.")
-            if version == 0:
+            if version < 2:
                 initial_db.execute("""CREATE TABLE timers_next (
                     id TEXT PRIMARY KEY,
                     title TEXT NOT NULL,
                     created_at TEXT NOT NULL,
-                    ends_at TEXT NOT NULL,
-                    display_unit TEXT NOT NULL CHECK(display_unit IN ('years','months','weeks','days','hours'))
+                    ends_at TEXT NOT NULL
                 )""")
                 legacy_table = initial_db.execute(
                     "SELECT 1 FROM sqlite_master WHERE type='table' AND name='timers'"
                 ).fetchone()
                 if legacy_table:
-                    initial_db.execute("""INSERT INTO timers_next (id,title,created_at,ends_at,display_unit)
-                        SELECT id,title,created_at,ends_at,display_unit FROM timers""")
+                    initial_db.execute("""INSERT INTO timers_next (id,title,created_at,ends_at)
+                        SELECT id,title,created_at,ends_at FROM timers""")
                     initial_db.execute("DROP TABLE timers")
                 initial_db.execute("ALTER TABLE timers_next RENAME TO timers")
-                initial_db.execute("PRAGMA user_version=1")
+                initial_db.execute("PRAGMA user_version=2")
     database_path.chmod(0o600)
 
     password = app.config["APP_PASSWORD"]
@@ -133,7 +131,7 @@ def create_app(config=None):
 
     @app.before_request
     def protect_mutations():
-        if request.path.startswith("/api/") and request.method in {"POST", "PATCH", "DELETE"}:
+        if request.path.startswith("/api/") and request.method in {"POST", "DELETE"}:
             # Cross-origin forms cannot send this header; no CORS is enabled.
             if request.headers.get("X-Requested-With") != "Minuteur" or not request.is_json:
                 return jsonify(error="A same-origin JSON request is required."), 403
@@ -226,9 +224,6 @@ def create_app(config=None):
                 raise ValueError("Duration fields must be whole numbers from 0 to 9999.")
             if not any(values.values()):
                 raise ValueError("Choose a duration of at least one minute.")
-            unit = body.get("display_unit", "years")
-            if not isinstance(unit, str) or unit not in UNITS:
-                raise ValueError("Choose years, months, weeks, days, or hours for the display.")
             now = datetime.now(timezone.utc)
             try:
                 end = add_duration(now, values)
@@ -238,31 +233,13 @@ def create_app(config=None):
             return jsonify(error=str(error)), 400
         timer = dict(id=uuid.uuid4().hex, title=title.strip(),
                      created_at=now.isoformat(timespec="milliseconds").replace("+00:00", "Z"),
-                     ends_at=end.isoformat(timespec="milliseconds").replace("+00:00", "Z"), display_unit=unit)
+                     ends_at=end.isoformat(timespec="milliseconds").replace("+00:00", "Z"))
         connection = database()
         with connection:
             connection.execute(
-                "INSERT INTO timers (id,title,created_at,ends_at,display_unit) VALUES (:id,:title,:created_at,:ends_at,:display_unit)", timer
+                "INSERT INTO timers (id,title,created_at,ends_at) VALUES (:id,:title,:created_at,:ends_at)", timer
             )
         return jsonify(timer=timer), 201
-
-    @app.patch("/api/timers/<timer_id>")
-    @require_auth
-    def update_timer(timer_id):
-        try:
-            body = json_body()
-            unit = body.get("display_unit")
-            if set(body) != {"display_unit"} or not isinstance(unit, str) or unit not in UNITS:
-                raise ValueError("Supply a display_unit of years, months, weeks, days, or hours.")
-        except ValueError as error:
-            return jsonify(error=str(error)), 400
-        connection = database()
-        with connection:
-            result = connection.execute("UPDATE timers SET display_unit=? WHERE id=?", (unit, timer_id))
-            if not result.rowcount:
-                return jsonify(error="Timer not found."), 404
-            timer = connection.execute("SELECT * FROM timers WHERE id=?", (timer_id,)).fetchone()
-        return jsonify(timer=dict(timer))
 
     @app.delete("/api/timers/<timer_id>")
     @require_auth
