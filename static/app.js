@@ -91,7 +91,7 @@
         remove.addEventListener("click", () => openDelete(timer.id));
         top.append(heading, remove);
         const main = node("div", "card-main");
-        const count = node("div");
+        const count = node("div", "countdown-row");
         const value = node("span", "countdown-value");
         const unit = node("span", "countdown-unit");
         count.append(value, unit);
@@ -108,12 +108,13 @@
         select.addEventListener("change", () => changeUnit(timer.id, select));
         control.append(label, select);
         main.append(count, control);
-        const breakdown = node("p", "breakdown");
+        const breakdown = node("span", "breakdown");
+        count.append(breakdown);
         const bottom = node("div", "card-bottom");
         const status = node("span", "card-status");
         const note = node("span");
         bottom.append(status, note);
-        element.append(top, main, breakdown, bottom);
+        element.append(top, main, bottom);
         card = { element, title, target, remove, value, unit, select, breakdown, status, note, finished: null };
         cards.set(timer.id, card);
         $("timers").append(element);
