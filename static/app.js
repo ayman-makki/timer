@@ -94,7 +94,9 @@
         const count = node("div", "countdown-row");
         const value = node("span", "countdown-value");
         const unit = node("span", "countdown-unit");
-        count.append(value, unit);
+        const primary = node("span", "countdown-part");
+        primary.append(value, unit);
+        count.append(primary);
         const control = node("div", "unit-control");
         const label = node("label", "", "Afficher en");
         const select = node("select");
@@ -144,18 +146,30 @@
       card.unit.textContent = `${config.label}${approximate ? " ≈" : ""}`;
       let remainder = seconds % config.seconds;
       const subunits = timer.display_unit === "years"
-        ? [["mois", units.months.seconds], ["j", units.days.seconds]]
+        ? [["mois", units.months.seconds], ["jours", units.days.seconds]]
         : timer.display_unit === "months"
-          ? [["j", units.days.seconds]]
+          ? [["jours", units.days.seconds]]
           : timer.display_unit === "days"
-            ? [["h", units.hours.seconds], ["min", 60]]
-            : [["min", 60]];
-      const breakdown = subunits.map(([label, size]) => {
-        const value = Math.floor(remainder / size);
-        remainder %= size;
-        return `${whole.format(value)} ${label}`;
-      }).join(" · ");
-      card.breakdown.textContent = finished ? "L’attente est terminée. Profitez de l’instant." : breakdown;
+            ? [["heures", units.hours.seconds], ["minutes", 60]]
+            : [["minutes", 60]];
+      if (finished) {
+        card.breakdown.textContent = "L’attente est terminée. Profitez de l’instant.";
+        delete card.breakdown.dataset.unit;
+      } else {
+        if (card.breakdown.dataset.unit !== timer.display_unit) {
+          card.breakdown.replaceChildren(...subunits.map(([label]) => {
+            const part = node("span", "countdown-part");
+            part.append(node("span", "countdown-value"), node("span", "countdown-unit", label));
+            return part;
+          }));
+          card.breakdown.dataset.unit = timer.display_unit;
+        }
+        subunits.forEach(([, size], index) => {
+          const value = Math.floor(remainder / size);
+          remainder %= size;
+          card.breakdown.children[index].firstChild.textContent = whole.format(value);
+        });
+      }
       card.note.textContent = approximate ? "Estimation · année de 365,2425 jours" : "Chaque seconde vous rapproche";
       if (card.finished !== finished) {
         card.element.classList.toggle("finished", finished);
